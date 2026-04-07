@@ -1,6 +1,7 @@
 package com.housewise.feature.dashboard.tasks
 
 import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -40,6 +41,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -72,19 +74,26 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 
+@RequiresApi(Build.VERSION_CODES.O)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MyTasksScreen(
-    onNavigateToTaskDetails: () -> Unit,
+    refreshTrigger: Int, // 1. FIXED: Receives the refresh trigger
+    onNavigateToTaskDetails: (String) -> Unit,
     onFilterClick: () -> Unit,
-    viewModel: MyTasksViewModel = viewModel() // INJECT VIEWMODEL
+    viewModel: MyTasksViewModel = viewModel()
 ) {
-    // 1. Dynamic State using real dates
+    // Dynamic State using real dates
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     var showCalendarPopup by remember { mutableStateOf(false) }
 
     // Observe API State
     val tasksState by viewModel.tasksState.collectAsState()
+
+    // 2. FIXED: Fetch tasks automatically when a new task is saved!
+    LaunchedEffect(refreshTrigger) {
+        viewModel.fetchTasks()
+    }
 
     val ribbonDates = remember(selectedDate) {
         val today = LocalDate.now()
@@ -105,9 +114,8 @@ fun MyTasksScreen(
         ) {
             // Search Bar
             OutlinedTextField(
-                value = "",
-                onValueChange = {},
-                placeholder = { Text("Search tasks(86)", color = Color.Gray, fontSize = 14.ssp) },
+                value = "", onValueChange = {},
+                placeholder = { Text("Search tasks", color = Color.Gray, fontSize = 14.ssp) },
                 leadingIcon = {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -216,22 +224,23 @@ fun MyTasksScreen(
                     }
 
                     is Resource.Success -> {
-                        // FIXED: Uses the new 'Succes' list
-                        val filteredTasks = (tasksState as Resource.Success).data ?: emptyList()
+                        val allTasks = (tasksState as Resource.Success).data ?: emptyList()
 
-                        // Filter tasks locally to only show tasks matching the selectedDate
-//                        val filteredTasks = allTasks.filter { task ->
-//                            val dateString = task.scheduledDate?.substringBefore(" ") // Extract "YYYY-MM-DD"
-//                            if (dateString != null) {
-//                                try {
-//                                    LocalDate.parse(dateString) == selectedDate
-//                                } catch (e: Exception) { false }
-//                            } else false
-//                        }
+                        // 3. FIXED: Robust Date Filtering!
+                        val filteredTasks = allTasks.filter { task ->
+                            val dateString =
+                                task.scheduledDate?.substringBefore(" ") // Extracts "YYYY-MM-DD"
+                            if (dateString.isNullOrEmpty()) return@filter false
+                            try {
+                                LocalDate.parse(dateString) == selectedDate
+                            } catch (e: Exception) {
+                                false
+                            }
+                        }
 
                         if (filteredTasks.isEmpty()) {
                             Text(
-                                text = "No tasks for ${selectedDate.format(displayFormatter)}",
+                                text = "No tasks found for ${selectedDate.format(displayFormatter)}",
                                 color = Color.Gray,
                                 fontSize = 14.ssp,
                                 modifier = Modifier.align(Alignment.Center)
@@ -240,7 +249,10 @@ fun MyTasksScreen(
                             LazyColumn(contentPadding = PaddingValues(bottom = 80.sdp)) {
                                 items(filteredTasks) { task ->
                                     val status = task.status ?: "New"
-                                    val isFaded = status.equals("Complete", ignoreCase = true) || status.equals("Completed", ignoreCase = true)
+                                    val isFaded = status.equals(
+                                        "Complete",
+                                        ignoreCase = true
+                                    ) || status.equals("Completed", ignoreCase = true)
                                     val statusColor = when (status.lowercase()) {
                                         "complete", "completed" -> StatusGray
                                         "on-hold" -> StatusRed
@@ -249,7 +261,8 @@ fun MyTasksScreen(
                                     }
 
                                     val formattedDate = try {
-                                        LocalDate.parse(task.scheduledDate?.substringBefore(" ")).format(displayFormatter)
+                                        LocalDate.parse(task.scheduledDate?.substringBefore(" "))
+                                            .format(displayFormatter)
                                     } catch (e: Exception) {
                                         task.scheduledDate ?: "N/A"
                                     }
@@ -262,7 +275,10 @@ fun MyTasksScreen(
                                         status = status,
                                         statusColor = statusColor,
                                         isFaded = isFaded,
-                                        onViewDetailsClick = onNavigateToTaskDetails // Next step: pass task data here!
+                                        onViewDetailsClick = {
+                                            val safeId = task.id ?: "0"
+                                            onNavigateToTaskDetails(safeId)
+                                        }
                                     )
                                 }
                             }
@@ -305,17 +321,14 @@ fun MyTasksScreen(
     }
 }
 
-// Keep your exact DynamicCalendarView and TaskCard here!
-
 // --- FULLY DYNAMIC CALENDAR COMPOSABLE ---
+@RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun DynamicCalendarView(initialDate: LocalDate, onDateSelected: (LocalDate) -> Unit) {
-    // Track the currently displayed month in the calendar (can change via arrows)
     var currentDisplayMonth by remember { mutableStateOf(YearMonth.from(initialDate)) }
     val today = LocalDate.now()
 
     Column {
-        // Month & Year Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -334,28 +347,21 @@ fun DynamicCalendarView(initialDate: LocalDate, onDateSelected: (LocalDate) -> U
             )
             Row {
                 Icon(
-                    imageVector = Icons.Default.KeyboardArrowLeft,
-                    contentDescription = "Previous Month",
+                    Icons.Default.KeyboardArrowLeft,
+                    "Previous Month",
                     modifier = Modifier
                         .size(24.sdp)
-                        .clickable {
-                            currentDisplayMonth = currentDisplayMonth.minusMonths(1)
-                        }
-                )
+                        .clickable { currentDisplayMonth = currentDisplayMonth.minusMonths(1) })
                 Spacer(modifier = Modifier.width(16.sdp))
                 Icon(
-                    imageVector = Icons.Default.KeyboardArrowRight,
-                    contentDescription = "Next Month",
+                    Icons.Default.KeyboardArrowRight,
+                    "Next Month",
                     modifier = Modifier
                         .size(24.sdp)
-                        .clickable {
-                            currentDisplayMonth = currentDisplayMonth.plusMonths(1)
-                        }
-                )
+                        .clickable { currentDisplayMonth = currentDisplayMonth.plusMonths(1) })
             }
         }
 
-        // Days of Week Header
         val daysOfWeek = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
             daysOfWeek.forEach { day ->
@@ -372,19 +378,13 @@ fun DynamicCalendarView(initialDate: LocalDate, onDateSelected: (LocalDate) -> U
 
         Spacer(modifier = Modifier.height(12.sdp))
 
-        // Dynamic Grid Calculation
         val firstDayOfMonth = currentDisplayMonth.atDay(1)
         val daysInMonth = currentDisplayMonth.lengthOfMonth()
-
-        // Java time sets Monday=1, Sunday=7. We want Sunday=0, Saturday=6 for typical UI
         val offset =
             if (firstDayOfMonth.dayOfWeek.value == 7) 0 else firstDayOfMonth.dayOfWeek.value
-
-        // Calculate weeks needed (usually 5 or 6)
         val totalCells = offset + daysInMonth
         val numWeeks = kotlin.math.ceil(totalCells / 7.0).toInt()
 
-        // Generate Grid
         for (week in 0 until numWeeks) {
             Row(
                 modifier = Modifier
@@ -402,7 +402,6 @@ fun DynamicCalendarView(initialDate: LocalDate, onDateSelected: (LocalDate) -> U
                             .aspectRatio(1f),
                         contentAlignment = Alignment.Center
                     ) {
-                        // Check if this cell actually holds a valid date for this month
                         if (dayOfMonth in 1..daysInMonth) {
                             val thisDate = currentDisplayMonth.atDay(dayOfMonth)
                             val isSelected = thisDate == initialDate
@@ -420,17 +419,13 @@ fun DynamicCalendarView(initialDate: LocalDate, onDateSelected: (LocalDate) -> U
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Text(
-                                        text = dayOfMonth.toString(),
-                                        fontSize = 14.ssp,
-                                        color = if (isSelected) Color.White
-                                        else if (isToday) Color(0xFF00ACC1) // Teal color for "Today"
-                                        else Color.Gray,
+                                        text = dayOfMonth.toString(), fontSize = 14.ssp,
+                                        color = if (isSelected) Color.White else if (isToday) Color(
+                                            0xFF00ACC1
+                                        ) else Color.Gray,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                                     )
-
-                                    // Randomly assign a dot to some days for visual flavor (or tie this to real task data later)
-                                    val hasTasks =
-                                        dayOfMonth % 5 == 0 // Mock logic: every 5th day has tasks
+                                    val hasTasks = dayOfMonth % 5 == 0
                                     if (hasTasks || isSelected) {
                                         Spacer(modifier = Modifier.height(2.sdp))
                                         Box(
@@ -453,8 +448,8 @@ fun DynamicCalendarView(initialDate: LocalDate, onDateSelected: (LocalDate) -> U
         }
     }
 }
-// ... (TaskCard Composable remains identical) ...
 
+// --- TASK CARD COMPOSABLE ---
 @Composable
 fun TaskCard(
     title: String,
@@ -469,14 +464,12 @@ fun TaskCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 8.sdp), // Scalable padding
+            .padding(vertical = 8.sdp),
         colors = CardDefaults.cardColors(containerColor = if (isFaded) Color.White.copy(alpha = 0.5f) else Color.White),
         shape = RoundedCornerShape(16.sdp),
         elevation = CardDefaults.cardElevation(defaultElevation = if (isFaded) 0.sdp else 2.sdp)
     ) {
         Column(modifier = Modifier.padding(16.sdp)) {
-
-            // Header: Title and Custom Badge
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -484,30 +477,25 @@ fun TaskCard(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = title,
+                        title,
                         fontWeight = FontWeight.Medium,
-                        fontSize = 16.ssp, // Poppins font size
+                        fontSize = 16.ssp,
                         style = MaterialTheme.typography.titleMedium,
                         color = if (isFaded) Color.LightGray else Color.Black
                     )
                     Spacer(modifier = Modifier.height(4.sdp))
                     Text(
-                        text = "ID $id",
+                        "ID $id",
                         color = if (isFaded) Color.LightGray else Color.Gray,
                         fontSize = 12.ssp,
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
-
                 Spacer(modifier = Modifier.width(8.sdp))
-
-                // Custom Status Badge (Looks better than default M3 Badge)
-                Surface(
-                    color = statusColor, shape = RoundedCornerShape(6.sdp)
-                ) {
+                Surface(color = statusColor, shape = RoundedCornerShape(6.sdp)) {
                     Text(
-                        text = status,
-                        color = if (status == "Completed") Color.Gray else Color.White, // Gray text for completed
+                        status,
+                        color = if (status == "Completed") Color.Gray else Color.White,
                         fontSize = 12.ssp,
                         fontWeight = FontWeight.Medium,
                         style = MaterialTheme.typography.labelMedium,
@@ -518,11 +506,10 @@ fun TaskCard(
 
             Spacer(modifier = Modifier.height(16.sdp))
 
-            // Info row: Calendar
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    painter = painterResource(id = R.drawable.ic_calendar_filter_by), // Custom Calendar Icon
-                    contentDescription = "Due Date",
+                    painterResource(id = R.drawable.ic_calendar_filter_by),
+                    null,
                     tint = if (isFaded) Color.LightGray else Color.DarkGray,
                     modifier = Modifier.size(16.sdp)
                 )
@@ -538,17 +525,16 @@ fun TaskCard(
                     fontSize = 13.ssp,
                     color = if (isFaded) Color.LightGray else Color.Gray,
                     style = MaterialTheme.typography.bodyMedium,
-                    textDecoration = TextDecoration.Underline // Underlined date
+                    textDecoration = TextDecoration.Underline
                 )
             }
 
             Spacer(modifier = Modifier.height(8.sdp))
 
-            // Info row: Location
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    painter = painterResource(id = R.drawable.ic_location_small), // Custom Location Icon
-                    contentDescription = "Location",
+                    painterResource(id = R.drawable.ic_location_small),
+                    null,
                     tint = if (isFaded) Color.LightGray else Color.DarkGray,
                     modifier = Modifier.size(16.sdp)
                 )
@@ -563,7 +549,6 @@ fun TaskCard(
 
             Spacer(modifier = Modifier.height(16.sdp))
 
-            // Dual CTAs matching sizes exactly
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.sdp)
@@ -572,10 +557,11 @@ fun TaskCard(
                     onClick = onViewDetailsClick,
                     modifier = Modifier
                         .weight(1f)
-                        .height(32.sdp), // Set explicit CTA height
+                        .height(32.sdp),
                     shape = RoundedCornerShape(8.sdp),
                     border = BorderStroke(
-                        1.sdp, if (isFaded) Color(0xFFEEEEEE) else Color.LightGray
+                        1.sdp,
+                        if (isFaded) Color(0xFFEEEEEE) else Color.LightGray
                     ),
                     contentPadding = PaddingValues(0.sdp)
                 ) {
@@ -588,21 +574,21 @@ fun TaskCard(
                     )
                 }
 
-                // Standard Button used here to ensure absolute height parity with OutlinedButton
                 Button(
                     onClick = onViewDetailsClick,
                     modifier = Modifier
                         .weight(1f)
-                        .height(32.sdp), // Matches OutlinedButton perfectly
+                        .height(32.sdp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isFaded) Color(0xFFE0E0E0) else HousewiseGreen
+                        containerColor = if (isFaded) Color(
+                            0xFFE0E0E0
+                        ) else HousewiseGreen
                     ),
-                    shape = RoundedCornerShape(8.sdp),
-                    contentPadding = PaddingValues(0.sdp)
+                    shape = RoundedCornerShape(8.sdp), contentPadding = PaddingValues(0.sdp)
                 ) {
                     Text(
-                        text = if (isFaded) "Completed" else "Initiate",
-                        color = if (isFaded) Color.White else Color.White,
+                        if (isFaded) "Completed" else "Initiate",
+                        color = Color.White,
                         fontSize = 13.ssp,
                         fontWeight = FontWeight.Medium,
                         style = MaterialTheme.typography.bodyLarge

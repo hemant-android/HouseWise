@@ -73,8 +73,8 @@ fun MainView() {
 
         composable(Screen.Dashboard.route) {
             DashboardScreen(
-                onNavigateToTaskDetails = {
-                    navController.navigate(Screen.TaskDetails.route)
+                onNavigateToTaskDetails = { taskId ->
+                    navController.navigate("${Screen.TaskDetails.route}/$taskId")
                 },
                 onNavigateToInitiateTask = {
                     navController.navigate(Screen.InitiateTaskEmpty.route)
@@ -98,16 +98,15 @@ fun MainView() {
             )
         }
 
-        composable(Screen.TaskDetails.route) {
-            val selectedTask = TaskData(
-                title = "Repeat inspection report",
-                propertyId = "ID #4092",
-                dueDate = "22 Mar",
-                status = "New",
-                assignee = "Kushagra Singh Tanwar"
-            )
+        composable(
+            route = "${Screen.TaskDetails.route}/{taskId}",
+            arguments = listOf(navArgument("taskId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            // Extract the ID from the route arguments
+            val passedTaskId = backStackEntry.arguments?.getString("taskId") ?: ""
+
             TaskDetailsScreen(
-                task = selectedTask,
+                taskId = passedTaskId, // Pass the ID directly into your screen!
                 onBackClick = { navController.popBackStack() },
                 onNavigateToInitiate = {
                     navController.navigate(Screen.InitiateTaskEmpty.route)

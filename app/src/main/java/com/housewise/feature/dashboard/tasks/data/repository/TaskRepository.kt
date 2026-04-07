@@ -6,6 +6,7 @@ import com.housewise.core.network.RetrofitClient
 import com.housewise.core.network.model.HWRequest
 import com.housewise.core.utils.Resource
 import com.housewise.feature.dashboard.tasks.data.model.CreateTaskPayload
+import com.housewise.feature.dashboard.tasks.data.model.EditTaskPayload
 import com.housewise.feature.dashboard.tasks.data.model.TaskModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -90,6 +91,81 @@ class TaskRepository {
             emit(Resource.Error(e.localizedMessage ?: "Unexpected error"))
         } catch (e: Exception) {
             emit(Resource.Error("Couldn't reach server or parse data."))
+        }
+    }
+
+    suspend fun getTaskDetails(taskId: String): Flow<Resource<TaskModel.Response.Succes>> = flow {
+        emit(Resource.Loading())
+        try {
+
+            val request = HWRequest(
+                method = "GET",
+                urlPath = "get_task/$taskId",
+                body = null,
+                params = emptyMap(),
+                header = mapOf(
+                    "Content-Type" to "application/json",
+                    "x-api-key" to "Sagar@12",
+                )
+            )
+
+            val response = api.proxyRequest(request)
+
+            if (response.isSuccessful && response.body() != null) {
+                val jsonString = gson.toJson(response.body())
+                val taskModelResponse = gson.fromJson(jsonString, TaskModel::class.java)
+
+                // The API returns the single task inside an array, so we grab the first item
+                val taskDetails = taskModelResponse.response?.success?.firstOrNull()
+
+                if (taskDetails != null) {
+                    emit(Resource.Success(taskDetails))
+                } else {
+                    emit(Resource.Error("Task details not found"))
+                }
+            } else {
+                emit(Resource.Error("Failed to fetch task details"))
+            }
+        } catch (e: HttpException) {
+            emit(Resource.Error(e.localizedMessage ?: "Unexpected error"))
+        } catch (e: Exception) {
+            emit(Resource.Error("Couldn't reach server or parse data."))
+        }
+    }
+
+    // Add this inside TaskRepository.kt
+    suspend fun editTask(taskId: String, payload: EditTaskPayload): Flow<Resource<String>> = flow {
+        emit(Resource.Loading())
+        try {
+            val stringifiedBody = gson.toJson(payload)
+
+            // Wrap it perfectly for the Proxy
+            val request = HWRequest(
+                method = "POST",
+                urlPath = "edit_task/$taskId", // Appends the ID dynamically
+                body = stringifiedBody,
+                params = emptyMap(),
+                header = mapOf(
+                    "Content-Type" to "application/json",
+                    "x-api-key" to "Sagar@12"
+                )
+            )
+
+            val response = api.proxyRequest(request)
+            val innerResponse = response.body()?.response
+
+            // Checking both formats just to be safe
+            val isSuccess = innerResponse?.status == "Success" || innerResponse?.success != null
+
+            if (response.isSuccessful && isSuccess) {
+                emit(Resource.Success("Task updated successfully!"))
+            } else {
+                emit(Resource.Error("Failed to update task"))
+            }
+        } catch (e: HttpException) {
+            emit(Resource.Error(e.localizedMessage ?: "Unexpected error"))
+        } catch (e: Exception) {
+            emit(Resource.Error("Couldn't reach server. Check internet connection."))
         }
     }
 }

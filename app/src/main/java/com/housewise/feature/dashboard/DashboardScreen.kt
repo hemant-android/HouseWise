@@ -1,6 +1,5 @@
 package com.housewise.feature.dashboard
 
-// Import responsive utils
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,7 +41,7 @@ import com.housewise.navigation.BottomNavScreen
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
-    onNavigateToTaskDetails: () -> Unit,
+    onNavigateToTaskDetails: (String) -> Unit,
     onNavigateToInitiateTask: () -> Unit,
     onNavigateToLeadDetails: () -> Unit,
     onNavigateToBrokerDetails: () -> Unit,
@@ -54,20 +53,19 @@ fun DashboardScreen(
     val navBackStackEntry by bottomNavController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    // State to control the New Task Bottom Sheet
+    // State to control Bottom Sheets
     var showNewTaskSheet by remember { mutableStateOf(false) }
     var showNewLeadSheet by remember { mutableStateOf(false) }
     var showNewBrokerSheet by remember { mutableStateOf(false) }
+
+    // 1. FIXED: Added a trigger to refresh the task list
+    var refreshTasksCounter by remember { mutableStateOf(0) }
+
     Scaffold(
         topBar = { TopAppBar(onNavigateToNotifications = onNavigateToNotifications) },
         bottomBar = {
-            // 1. Wrap the Bottom Nav and FAB inside a single Box
-            Box(
-                modifier = Modifier.fillMaxWidth(),
-                contentAlignment = Alignment.TopCenter
-            ) {
-                // 2. Push the Bottom Bar down by half the height of the FAB
-                Box(modifier = Modifier.padding(top = 32.sdp)) { // Responsive padding
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                Box(modifier = Modifier.padding(top = 32.sdp)) {
                     BottomNavBar(
                         currentRoute = currentRoute,
                         onNavigate = { route ->
@@ -82,13 +80,12 @@ fun DashboardScreen(
                     )
                 }
 
-                // 3. Place the FAB over the top-center edge of the Box
                 Surface(
                     shape = CircleShape,
-                    color = Color.White, // Guarantees pure white, no Material 3 tinting
-                    shadowElevation = 8.sdp, // Responsive drop shadow
+                    color = Color.White,
+                    shadowElevation = 8.sdp,
                     modifier = Modifier
-                        .size(64.sdp) // Responsive FAB size
+                        .size(64.sdp)
                         .clickable {
                             when (currentRoute) {
                                 BottomNavScreen.Tasks.route -> showNewTaskSheet = true
@@ -99,10 +96,10 @@ fun DashboardScreen(
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "Add",
-                            tint = Color.Black, // Pure black plus sign
-                            modifier = Modifier.size(32.sdp) // Responsive '+' size
+                            Icons.Default.Add,
+                            "Add",
+                            tint = Color.Black,
+                            modifier = Modifier.size(32.sdp)
                         )
                     }
                 }
@@ -116,51 +113,52 @@ fun DashboardScreen(
             ) {
                 composable(BottomNavScreen.Tasks.route) {
                     MyTasksScreen(
+                        refreshTrigger = refreshTasksCounter, // 2. FIXED: Pass trigger down
                         onNavigateToTaskDetails = onNavigateToTaskDetails,
-                        onFilterClick = { onNavigateToFilterSort("tasks") })
+                        onFilterClick = { onNavigateToFilterSort("tasks") }
+                    )
                 }
                 composable(BottomNavScreen.Leads.route) {
                     MyLeadsScreen(
                         onNavigateToLeadDetails = onNavigateToLeadDetails,
-                        onFilterClick = { onNavigateToFilterSort("leads") }) // PASSED DOWN: Wires up the click action
+                        onFilterClick = { onNavigateToFilterSort("leads") })
                 }
                 composable(BottomNavScreen.Brokers.route) {
                     BrokerManagerScreen(
                         onNavigateToBrokerDetails = onNavigateToBrokerDetails,
-                        onFilterClick = { onNavigateToFilterSort("brokers") }
-                    )
+                        onFilterClick = { onNavigateToFilterSort("brokers") })
                 }
                 composable(BottomNavScreen.More.route) {
                     MoreOptionsScreen(
                         onNavigateToReminders = onNavigateToReminders,
-                        onNavigateToNotifications = onNavigateToNotifications // ADDED THIS
+                        onNavigateToNotifications = onNavigateToNotifications
                     )
                 }
             }
 
-            // BOTTOM SHEET LOGIC ADDED HERE
+            // TASK BOTTOM SHEET
             if (showNewTaskSheet) {
                 ModalBottomSheet(
                     onDismissRequest = { showNewTaskSheet = false },
-                    containerColor = Color.White,
-                    dragHandle = null, // Hides the default little grey drag handle line
-                    shape = RoundedCornerShape(
-                        topStart = 24.sdp,
-                        topEnd = 24.sdp
-                    ) // Responsive corners
+                    containerColor = Color.White, dragHandle = null,
+                    shape = RoundedCornerShape(topStart = 24.sdp, topEnd = 24.sdp)
                 ) {
                     NewTaskScreen(
                         onCancel = { showNewTaskSheet = false },
-                        onSave = {
-                            /* TODO: Save logic here */
+                        onSave = { navigateToInitiate -> // FIXED: Accepts the boolean!
                             showNewTaskSheet = false
-                            onNavigateToInitiateTask()
+                            refreshTasksCounter++
+
+                            // If they clicked the bottom CTA, navigate!
+                            if (navigateToInitiate) {
+                                onNavigateToInitiateTask()
+                            }
                         }
                     )
                 }
             }
 
-            // LEAD BOTTOM SHEET (ADDED HERE)
+            // LEAD BOTTOM SHEET
             if (showNewLeadSheet) {
                 ModalBottomSheet(
                     onDismissRequest = { showNewLeadSheet = false },
@@ -168,34 +166,25 @@ fun DashboardScreen(
                     dragHandle = null,
                     shape = RoundedCornerShape(topStart = 24.sdp, topEnd = 24.sdp)
                 ) {
-                    // This calls the new composable we just created above!
                     NewLeadSheet(
                         onCancel = { showNewLeadSheet = false },
-                        onSave = {
-                            /* TODO: Add Save logic */
-                            showNewLeadSheet = false
-                        }
-                    )
+                        onSave = { showNewLeadSheet = false })
                 }
             }
-        }
-    }
 
-    // BROKER BOTTOM SHEET (ADDED HERE)
-    if (showNewBrokerSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showNewBrokerSheet = false },
-            containerColor = Color.White,
-            dragHandle = null,
-            shape = RoundedCornerShape(topStart = 24.sdp, topEnd = 24.sdp)
-        ) {
-            NewBrokerSheet(
-                onCancel = { showNewBrokerSheet = false },
-                onSave = {
-                    /* TODO: Add Save Broker logic */
-                    showNewBrokerSheet = false
+            // BROKER BOTTOM SHEET
+            if (showNewBrokerSheet) {
+                ModalBottomSheet(
+                    onDismissRequest = { showNewBrokerSheet = false },
+                    containerColor = Color.White,
+                    dragHandle = null,
+                    shape = RoundedCornerShape(topStart = 24.sdp, topEnd = 24.sdp)
+                ) {
+                    NewBrokerSheet(
+                        onCancel = { showNewBrokerSheet = false },
+                        onSave = { showNewBrokerSheet = false })
                 }
-            )
+            }
         }
     }
 }
